@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Building2, FileText, LogOut, Plus, Sun } from 'lucide-react';
 import { collection, addDoc, query, where, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
+import { Analytics } from '@vercel/analytics/react';
 
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -168,6 +169,7 @@ function App() {
 
         {view === 'report' && active && <Report survey={active} />}
       </main>
+      <Analytics />
     </div>
   );
 }
