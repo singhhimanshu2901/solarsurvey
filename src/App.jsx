@@ -1,8 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, FileText, LogOut, Plus, Sun } from 'lucide-react';
-import { collection, addDoc, query, where, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { Building2, FileText, LogOut, Plus, Sun, Menu, X } from 'lucide-react';
+import {
+  collection,
+  addDoc,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  deleteDoc,
+  updateDoc,
+} from 'firebase/firestore';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 
+import Footer from './components/Footer';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import SurveyForm from './components/SurveyForm';
@@ -14,6 +24,7 @@ import { db, auth } from './firebase';
 
 function App() {
   const [view, setView] = useState('dashboard');
+  const [mobileMenu, setMobileMenu] = useState(false);
   const [surveys, setSurveys] = useState([]);
   const [active, setActive] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -25,6 +36,7 @@ function App() {
       setUser(currentUser);
       setLoading(false);
     });
+
     return () => unsub();
   }, []);
 
@@ -34,7 +46,10 @@ function App() {
       return;
     }
 
-    const q = query(collection(db, 'surveys'), where('userId', '==', user.uid));
+    const q = query(
+      collection(db, 'surveys'),
+      where('userId', '==', user.uid)
+    );
 
     const unsub = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs
@@ -64,7 +79,12 @@ function App() {
     };
 
     const docRef = await addDoc(collection(db, 'surveys'), item);
-    setActive({ firestoreId: docRef.id, ...item });
+
+    setActive({
+      firestoreId: docRef.id,
+      ...item,
+    });
+
     setEditing(null);
     setView('report');
   }
@@ -96,6 +116,20 @@ function App() {
       setView('reports');
     }
   }
+  async function updateStatus(survey, newStatus) {
+  await updateDoc(doc(db, 'surveys', survey.firestoreId), {
+    status: newStatus,
+    updatedAt: new Date().toLocaleString(),
+  });
+
+  if (active?.firestoreId === survey.firestoreId) {
+    setActive({
+      ...active,
+      status: newStatus,
+      updatedAt: new Date().toLocaleString(),
+    });
+  }
+}
 
   function editSurvey(survey) {
     setEditing(survey);
@@ -109,13 +143,50 @@ function App() {
     setEditing(null);
   }
 
-  if (loading) return <div className="login"><div className="card loginCard"><h2>Loading...</h2></div></div>;
+  if (loading) {
+    return (
+      <div className="login">
+        <div className="card loginCard">
+          <h2>Loading...</h2>
+        </div>
+      </div>
+    );
+  }
 
-  if (!user) return <Login onLogin={() => {}} />;
-
+  if (!user) {
   return (
+    <>
+      <Login onLogin={() => {}} />
+      <Footer />
+    </>
+  );
+}
+
+ return (
+  <>
+    <div className="mobileTopbar">
+      <div className="mobileBrand">
+        <Sun />
+        <b>Solar Survey</b>
+      </div>
+
+      <button className="menuBtn" onClick={() => setMobileMenu(true)}>
+        <Menu size={22} />
+      </button>
+    </div>
+
+    {mobileMenu && (
+      <div className="overlay" onClick={() => setMobileMenu(false)}></div>
+    )}
+
     <div className="app">
-      <aside>
+      <aside className={mobileMenu ? 'showSidebar' : ''}>
+        <div className="mobileClose">
+          <button onClick={() => setMobileMenu(false)}>
+            <X size={20} />
+          </button>
+        </div>
+
         <div className="brand">
           <Sun />
           <div>
@@ -124,15 +195,34 @@ function App() {
           </div>
         </div>
 
-        <button onClick={() => setView('dashboard')} className={view === 'dashboard' ? 'on' : ''}>
+        <button
+          onClick={() => {
+            setView('dashboard');
+            setMobileMenu(false);
+          }}
+          className={view === 'dashboard' ? 'on' : ''}
+        >
           <Building2 size={18} /> Dashboard
         </button>
 
-        <button onClick={() => { setEditing(null); setView('new'); }} className={view === 'new' ? 'on' : ''}>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setView('new');
+            setMobileMenu(false);
+          }}
+          className={view === 'new' ? 'on' : ''}
+        >
           <Plus size={18} /> New Survey
         </button>
 
-        <button onClick={() => setView('reports')} className={view === 'reports' ? 'on' : ''}>
+        <button
+          onClick={() => {
+            setView('reports');
+            setMobileMenu(false);
+          }}
+          className={view === 'reports' ? 'on' : ''}
+        >
           <FileText size={18} /> Reports
         </button>
 
@@ -143,7 +233,14 @@ function App() {
 
       <main>
         {view === 'dashboard' && (
-          <Dashboard surveys={surveys} open={(s) => { setActive(s); setView('report'); }} />
+         <Dashboard
+  surveys={surveys}
+  open={(s) => {
+    setActive(s);
+    setView('report');
+  }}
+  updateStatus={updateStatus}
+/>
         )}
 
         {view === 'new' && <SurveyForm onSave={saveSurvey} />}
@@ -159,17 +256,24 @@ function App() {
 
         {view === 'reports' && (
           <Reports
-            surveys={surveys}
-            open={(s) => { setActive(s); setView('report'); }}
-            edit={editSurvey}
-            remove={deleteSurvey}
-          />
+  surveys={surveys}
+  open={(s) => {
+    setActive(s);
+    setView('report');
+  }}
+  edit={editSurvey}
+  remove={deleteSurvey}
+  updateStatus={updateStatus}
+/>
         )}
 
         {view === 'report' && active && <Report survey={active} />}
       </main>
     </div>
-  );
+
+    <Footer />
+  </>
+);
 }
 
 export default App;

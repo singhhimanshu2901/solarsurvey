@@ -17,32 +17,79 @@ function Report({ survey }) {
   const reportRef = useRef();
 
   const r = survey.report || {};
+  const ai = r.aiRoofAnalysis || {};
 
-  const exportPDF = async () => {
-    try {
-      const element = reportRef.current;
+const exportPDF = async () => {
+  try {
+    const element = reportRef.current;
 
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-      });
+    const oldWidth = element.style.width;
+    const oldMaxWidth = element.style.maxWidth;
+    const oldPadding = element.style.padding;
 
-      const imgData = canvas.toDataURL('image/png');
+    element.style.width = '794px';
+    element.style.maxWidth = '794px';
+    element.style.padding = '24px';
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const pdfWidth = pdf.internal.pageSize.getWidth();
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      scrollY: -window.scrollY,
+      windowWidth: 794,
+      windowHeight: element.scrollHeight,
+    });
 
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    element.style.width = oldWidth;
+    element.style.maxWidth = oldMaxWidth;
+    element.style.padding = oldPadding;
 
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    const pdf = new jsPDF('p', 'mm', 'a4');
 
-      pdf.save(`${survey.customerName || 'solar-report'}.pdf`);
-    } catch (err) {
-      console.log(err);
-      alert('PDF export failed');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let position = 0;
+    let heightLeft = imgHeight;
+
+    pdf.addImage(
+      canvas.toDataURL('image/jpeg', 1.0),
+      'JPEG',
+      0,
+      position,
+      imgWidth,
+      imgHeight
+    );
+
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position -= pageHeight;
+      pdf.addPage();
+
+      pdf.addImage(
+        canvas.toDataURL('image/jpeg', 1.0),
+        'JPEG',
+        0,
+        position,
+        imgWidth,
+        imgHeight
+      );
+
+      heightLeft -= pageHeight;
     }
-  };
+
+    pdf.save(`${survey.customerName || 'solar-report'}.pdf`);
+  } catch (err) {
+    console.log(err);
+    alert('PDF export failed');
+  }
+};
 
   return (
     <>
@@ -51,15 +98,76 @@ function Report({ survey }) {
       </button>
 
       <div className="reportPage" ref={reportRef}>
-        <div className="reportHeader">
-          <div>
-            <h1>Solar Survey Report</h1>
-            <span>AI Solar Survey Platform</span>
+        <h1 className="plainReportTitle">Solar Survey Report</h1>
+
+        <div className="aiAnalysisBox">
+          <div className="aiAnalysisTop">
+            <div>
+              <h2>Smart Roof Feasibility Analysis</h2>
+              <p>
+                Smart analysis based on roof area, obstruction, direction,
+                shadow risk and panel placement feasibility.
+              </p>
+            </div>
+
+            <div className="aiConfidence">
+              <b>{ai.aiConfidence || 0}%</b>
+              <span>Confidence</span>
+            </div>
           </div>
 
-          <div className="scoreCircle">
-            <b>{r.score || 0}</b>
-            <span>Roof Score</span>
+          <div className="aiMetricGrid">
+            <AiMetric
+              label="Roof Efficiency"
+              value={`${ai.efficiency || 0}%`}
+              percent={ai.efficiency || 0}
+            />
+
+            <AiMetric
+              label="Usable Roof Area"
+              value={`${ai.usablePercent || 0}%`}
+              percent={ai.usablePercent || 0}
+            />
+
+            <AiMetric
+              label="Roof Utilization"
+              value={`${ai.roofUtilization || 0}%`}
+              percent={ai.roofUtilization || 0}
+            />
+
+            <AiMetric
+              label="Obstruction Impact"
+              value={`${ai.obstructionImpact || 0}%`}
+              percent={ai.obstructionImpact || 0}
+              reverse
+            />
+          </div>
+
+          <div className="aiInfoGrid">
+            <Info
+              label="Recommended Panels"
+              value={ai.recommendedPanels || r.finalPanels || 0}
+            />
+
+            <Info
+              label="Recommended System"
+              value={`${ai.recommendedSystemSize || r.systemSize || 0} kW`}
+            />
+
+            <Info
+              label="Optimal Layout"
+              value={ai.optimalLayout || survey.orientation}
+            />
+
+            <Info
+              label="Detected Shadow Risk"
+              value={ai.shadowRisk || survey.shadowRisk}
+            />
+          </div>
+
+          <div className="aiRemark">
+            <b>Recommendation:</b>{' '}
+            {ai.remark || 'Roof feasibility analysis completed.'}
           </div>
         </div>
 
@@ -92,14 +200,21 @@ function Report({ survey }) {
             />
 
             <Info
-              label="Government Subsidy"
-              value={`₹${money(r.subsidy)}`}
+              label="Central Subsidy"
+              value={`₹${money(r.centralSubsidy || 0)}`}
             />
 
             <Info
-              label="Net Cost"
-              value={`₹${money(r.netCost)}`}
+              label="UP State Subsidy"
+              value={`₹${money(r.upSubsidy || 0)}`}
             />
+
+            <Info
+              label="Total Subsidy"
+              value={`₹${money(r.subsidy)}`}
+            />
+
+            <Info label="Net Cost" value={`₹${money(r.netCost)}`} />
 
             <Info
               label="Annual Savings"
@@ -130,22 +245,13 @@ function Report({ survey }) {
               value={`${r.yearlyGeneration || 0} Units`}
             />
 
-            <Info
-              label="Shadow Loss"
-              value={`${r.shadowLoss || 0}%`}
-            />
+            <Info label="Shadow Loss" value={`${r.shadowLoss || 0}%`} />
           </Card>
 
           <Card title="Installation Recommendation">
-            <Info
-              label="Recommended Tilt"
-              value="18° - 25°"
-            />
+            <Info label="Recommended Tilt" value="18° - 25°" />
 
-            <Info
-              label="Roof Suitability"
-              value={`${r.score || 0}/100`}
-            />
+            <Info label="Roof Suitability" value={`${r.score || 0}/100`} />
 
             <Info
               label="Access Difficulty"
@@ -160,38 +266,33 @@ function Report({ survey }) {
         </div>
 
         <div className="reportSummary">
-          <h2>AI Recommendation</h2>
+          <h2>Final Recommendation</h2>
 
           <p>
             This rooftop appears suitable for solar installation based on
-            available roof dimensions, direction, shading risk, and estimated
-            panel placement feasibility.
+            available roof dimensions, direction, shading risk, usable area,
+            and estimated panel placement feasibility.
           </p>
 
           <ul>
             <li>
-              Recommended Solar Capacity:{' '}
-              <b>{r.systemSize || 0} kW</b>
+              Recommended Solar Capacity: <b>{r.systemSize || 0} kW</b>
             </li>
 
             <li>
-              Estimated Annual Savings:{' '}
-              <b>₹{money(r.annualSaving)}</b>
+              Estimated Annual Savings: <b>₹{money(r.annualSaving)}</b>
             </li>
 
             <li>
-              Net Installation Cost:{' '}
-              <b>₹{money(r.netCost)}</b>
+              Net Installation Cost: <b>₹{money(r.netCost)}</b>
             </li>
 
             <li>
-              Estimated Payback:{' '}
-              <b>{r.paybackYears || 0} years</b>
+              Estimated Payback: <b>{r.paybackYears || 0} years</b>
             </li>
 
             <li>
-              Roof Suitability Score:{' '}
-              <b>{r.score || 0}/100</b>
+              Roof Suitability Score: <b>{r.score || 0}/100</b>
             </li>
           </ul>
         </div>
@@ -214,6 +315,26 @@ function Info({ label, value }) {
     <div className="infoRow">
       <span>{label}</span>
       <b>{value || '-'}</b>
+    </div>
+  );
+}
+
+function AiMetric({ label, value, percent, reverse = false }) {
+  const safePercent = Math.max(0, Math.min(100, Number(percent || 0)));
+
+  return (
+    <div className="aiMetric">
+      <div className="aiMetricHead">
+        <span>{label}</span>
+        <b>{value}</b>
+      </div>
+
+      <div className="aiBar">
+        <div
+          className={reverse ? 'aiBarFill dangerFill' : 'aiBarFill'}
+          style={{ width: `${safePercent}%` }}
+        ></div>
+      </div>
     </div>
   );
 }
