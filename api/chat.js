@@ -1,21 +1,8 @@
-const express = require("express");
-const cors = require("cors");
-require("dotenv").config();
-
 const { GoogleGenAI } = require("@google/genai");
-
-const app = express();
-
-app.use(cors());
-app.use(express.json());
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
-
-let surveys = [];
-
-/* -------------------- HELPERS -------------------- */
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,14 +16,10 @@ function isRetryableError(error) {
   );
 }
 
-/*
-  Better conversational model first.
-  If overloaded, lightweight model is used automatically.
-*/
 async function generateWithFallback(contents) {
   const models = [
-    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
   ];
 
   let lastError;
@@ -44,15 +27,9 @@ async function generateWithFallback(contents) {
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        console.log(`Trying ${model} | Attempt ${attempt}`);
-
         const response = await ai.models.generateContent({
           model,
 
-          /*
-            This gives Gemini a personality and project context.
-            It does NOT restrict replies to fixed keywords.
-          */
           config: {
             systemInstruction: `
 You are Solar Assistant, a friendly AI expert inside an AI Solar Survey Platform.
@@ -60,9 +37,8 @@ You are Solar Assistant, a friendly AI expert inside an AI Solar Survey Platform
 Your job:
 - Talk naturally like a helpful human assistant.
 - Understand the context of previous messages.
-- Give practical and accurate guidance.
 - Reply in simple Hinglish unless the user asks for English.
-- Keep answers concise, but explain properly when needed.
+- Keep answers clear, useful and practical.
 - Ask a follow-up question when necessary.
 - Do not sound robotic.
 - Do not behave like a keyword-based FAQ system.
@@ -85,9 +61,6 @@ If the question is completely unrelated, politely mention that your main experti
             `,
           },
 
-          /*
-            Previous conversation + latest user message.
-          */
           contents,
         });
 
@@ -97,10 +70,6 @@ If the question is completely unrelated, politely mention that your main experti
         };
       } catch (error) {
         lastError = error;
-
-        console.error(
-          `${model} failed | Status: ${error?.status || "unknown"}`
-        );
 
         if (!isRetryableError(error)) {
           throw error;
@@ -116,34 +85,16 @@ If the question is completely unrelated, politely mention that your main experti
   throw lastError;
 }
 
-/* -------------------- BASIC ROUTES -------------------- */
+module.exports = async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      success: false,
+      reply: "Method not allowed.",
+    });
+  }
 
-app.get("/", (req, res) => {
-  res.send("Solar Survey Backend Running 🚀");
-});
-
-app.get("/api/test", (req, res) => {
-  res.json({
-    success: true,
-    message: "API Working Successfully 🚀",
-  });
-});
-
-app.get("/api/debug-key", (req, res) => {
-  res.json({
-    success: true,
-    apiKeyLoaded: Boolean(process.env.GEMINI_API_KEY),
-    message: process.env.GEMINI_API_KEY
-      ? "Gemini API key loaded successfully ✅"
-      : "Gemini API key missing ❌",
-  });
-});
-
-/* -------------------- GEMINI CHATBOT -------------------- */
-
-app.post("/api/chat", async (req, res) => {
   try {
-    const { message, history = [] } = req.body;
+    const { message, history = [] } = req.body || {};
 
     if (!message || !message.trim()) {
       return res.status(400).json({
@@ -155,14 +106,10 @@ app.post("/api/chat", async (req, res) => {
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({
         success: false,
-        reply: "Gemini API key load nahi hui hai.",
+        reply: "Gemini API key configure nahi hui hai.",
       });
     }
 
-    /*
-      Last 10 messages only:
-      enough context without making every request too large.
-    */
     const recentHistory = history.slice(-10);
 
     const contents = recentHistory
@@ -179,7 +126,7 @@ app.post("/api/chat", async (req, res) => {
 
     const result = await generateWithFallback(contents);
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       reply:
         result.text ||
@@ -187,9 +134,7 @@ app.post("/api/chat", async (req, res) => {
       modelUsed: result.modelUsed,
     });
   } catch (error) {
-    console.error("========== FINAL GEMINI ERROR ==========");
-    console.error(error);
-    console.error("========================================");
+    console.error("Gemini Function Error:", error);
 
     if (error?.status === 503) {
       return res.status(503).json({
@@ -213,43 +158,4 @@ app.post("/api/chat", async (req, res) => {
         "AI assistant abhi available nahi hai. Please thodi der baad try karo.",
     });
   }
-});
-
-/* -------------------- SURVEY ROUTES -------------------- */
-
-app.get("/api/surveys", (req, res) => {
-  res.json(surveys);
-});
-
-app.post("/api/surveys", (req, res) => {
-  const survey = {
-    id: Date.now(),
-    createdAt: new Date().toLocaleString(),
-    ...req.body,
-  };
-
-  surveys.unshift(survey);
-
-  res.json({
-    success: true,
-    survey,
-  });
-});
-
-/* -------------------- SERVER START -------------------- */
-
-const PORT = process.env.PORT || 5000;
-
-/*
-  0.0.0.0 is important:
-  local mobile and deployed server both can reach backend.
-*/
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
-
-  console.log(
-    `Gemini API Key Loaded: ${
-      process.env.GEMINI_API_KEY ? "YES ✅" : "NO ❌"
-    }`
-  );
-});
+};

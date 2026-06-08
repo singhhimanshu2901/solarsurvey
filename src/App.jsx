@@ -11,7 +11,8 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
-
+import ChatbotWidget from "./components/ChatbotWidget";
+import FAQSection from "./components/FAQSection";
 import Footer from './components/Footer';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -158,6 +159,7 @@ function App() {
     <>
       <Login onLogin={() => {}} />
       <Footer />
+      
     </>
   );
 }
@@ -271,7 +273,10 @@ function App() {
       </main>
     </div>
 
-    <Footer />
+    
+    <FAQSection />
+      <ChatbotWidget />
+      <Footer />
   </>
 );
 }
