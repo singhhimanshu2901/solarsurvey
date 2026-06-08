@@ -26,8 +26,7 @@ function ChatbotWidget() {
   const [messages, setMessages] = useState([
     {
       role: "bot",
-      text: "Hi 👋\nI am your AI Solar Assistant.\nAap solar survey, subsidy, ROI, panel capacity ya roof analysis ke baare me kuch bhi pooch sakte ho.",
-    },
+text: "Hi 👋\nI am your SolarOps Assistant.\nMain survey reports, bill OCR, subsidy, ROI, roof inputs, panel capacity aur lead qualification me help kar sakta hoon.",    },
   ]);
 
   /* AUTO-SCROLL */
@@ -217,7 +216,7 @@ function ChatbotWidget() {
                     margin: "2px 0 0",
                   }}
                 >
-                  Online • Gemini AI
+                  Online • Company Support Assistant
                 </p>
               </div>
             </div>

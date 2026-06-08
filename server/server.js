@@ -21,95 +21,134 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableError(error) {
-  return (
-    error?.status === 503 ||
-    error?.status === 500 ||
-    error?.status === 429
-  );
+/*
+  Retry only temporary Gemini server issues.
+
+  IMPORTANT:
+  Do not retry 429 quota errors.
+  Retrying 429 creates unnecessary API requests.
+*/
+function isTemporaryServerError(error) {
+  return error?.status === 503 || error?.status === 500;
 }
 
 /*
-  Better conversational model first.
-  If overloaded, lightweight model is used automatically.
+  First use Flash-Lite for lightweight chatbot queries.
+  If Google server is temporarily overloaded,
+  try Flash as fallback.
 */
 async function generateWithFallback(contents) {
   const models = [
-    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
   ];
 
   let lastError;
 
   for (const model of models) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        console.log(`Trying ${model} | Attempt ${attempt}`);
+    try {
+      console.log(`Trying Gemini model: ${model}`);
 
-        const response = await ai.models.generateContent({
-          model,
+      const response = await ai.models.generateContent({
+        model,
 
-          /*
-            This gives Gemini a personality and project context.
-            It does NOT restrict replies to fixed keywords.
-          */
-          config: {
-            systemInstruction: `
-You are Solar Assistant, a friendly AI expert inside an AI Solar Survey Platform.
+        config: {
+          systemInstruction: `
+You are SolarOps Assistant, an AI assistant for solar companies, surveyors and internal operations teams using an AI Solar Survey Platform.
 
-Your job:
-- Talk naturally like a helpful human assistant.
-- Understand the context of previous messages.
-- Give practical and accurate guidance.
-- Reply in simple Hinglish unless the user asks for English.
-- Keep answers concise, but explain properly when needed.
-- Ask a follow-up question when necessary.
-- Do not sound robotic.
+The platform is primarily designed for solar companies, not end customers.
+
+Your role:
+- Help surveyors complete solar surveys correctly.
+- Help company staff understand survey reports.
+- Explain subsidy, ROI, payback period and system sizing.
+- Validate rooftop details, direction, roof area and panel capacity inputs.
+- Help staff interpret electricity bill OCR results.
+- Suggest what information should be collected from customers.
+- Help qualify customer leads.
+- Explain report fields and recommendations.
+- Support company workflow, lead handling and survey operations.
+- Answer technical and operational questions practically.
+
+Tone and style:
+- Reply in simple Hinglish.
+- Speak like an internal solar-company operations assistant.
+- Be concise, practical and professional.
+- Do not talk as if the user is a residential customer unless clearly asked.
 - Do not behave like a keyword-based FAQ system.
+- Understand previous messages and continue naturally.
+- Ask follow-up questions when required.
+- Use short paragraphs.
+- Avoid unnecessarily long replies.
 
-Your main expertise:
-- Solar installation
-- Solar survey
-- Electricity bill analysis
-- Solar subsidy
-- ROI and payback period
-- Rooftop analysis
+Prefer phrases such as:
+- "Customer ke liye"
+- "Survey report ke according"
+- "Company dashboard me"
+- "Surveyor ko verify karna chahiye"
+- "Lead qualify karne ke liye"
+
+Main expertise:
+- Solar survey workflow
+- Customer lead qualification
+- Electricity bill OCR verification
+- Solar system recommendation
+- Subsidy calculation
+- ROI and payback analysis
+- Rooftop suitability
 - Shadow analysis
-- Panel capacity
-- Installation cost
-- Solar company dashboard
-- Lead generation
+- Panel placement inputs
+- Solar report generation
+- Company dashboard
+- CRM and lead management
+- Surveyor operations
 
-If the user asks a general question, answer naturally when possible.
-If the question is completely unrelated, politely mention that your main expertise is solar.
-            `,
-          },
+Important:
+- If the user asks a customer-type question, answer from the solar-company perspective.
+- If the user asks something unrelated to solar-company operations, politely redirect them.
+          `,
 
-          /*
-            Previous conversation + latest user message.
-          */
-          contents,
-        });
+          maxOutputTokens: 500,
+          temperature: 0.7,
+        },
 
-        return {
-          text: response.text,
-          modelUsed: model,
-        };
-      } catch (error) {
-        lastError = error;
+        contents,
+      });
 
-        console.error(
-          `${model} failed | Status: ${error?.status || "unknown"}`
-        );
+      return {
+        text: response.text,
+        modelUsed: model,
+      };
+    } catch (error) {
+      lastError = error;
 
-        if (!isRetryableError(error)) {
-          throw error;
-        }
+      console.error(
+        `${model} failed | Status: ${error?.status || "unknown"}`
+      );
 
-        if (attempt < 2) {
-          await wait(1200);
-        }
+      /*
+        Stop immediately on quota limit.
+        Do not try another model.
+      */
+      if (error?.status === 429) {
+        throw error;
       }
+
+      /*
+        Temporary Google-side issue:
+        wait briefly and try fallback model.
+      */
+      if (isTemporaryServerError(error)) {
+        console.log("Temporary Gemini issue. Trying fallback model...");
+        await wait(1200);
+        continue;
+      }
+
+      /*
+        Invalid key, permission issue or bad request:
+        stop immediately.
+      */
+      throw error;
     }
   }
 
@@ -143,7 +182,7 @@ app.get("/api/debug-key", (req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, history = [] } = req.body;
+    const { message, history = [] } = req.body || {};
 
     if (!message || !message.trim()) {
       return res.status(400).json({
@@ -160,21 +199,29 @@ app.post("/api/chat", async (req, res) => {
     }
 
     /*
-      Last 10 messages only:
-      enough context without making every request too large.
+      Send only recent history.
+      This keeps context useful without unnecessary token usage.
     */
-    const recentHistory = history.slice(-10);
+    const recentHistory = history.slice(-8);
 
     const contents = recentHistory
       .filter((item) => item.text && item.role)
       .map((item) => ({
         role: item.role === "bot" ? "model" : "user",
-        parts: [{ text: item.text }],
+        parts: [
+          {
+            text: String(item.text).slice(0, 1500),
+          },
+        ],
       }));
 
     contents.push({
       role: "user",
-      parts: [{ text: message.trim() }],
+      parts: [
+        {
+          text: message.trim().slice(0, 2000),
+        },
+      ],
     });
 
     const result = await generateWithFallback(contents);
@@ -191,6 +238,14 @@ app.post("/api/chat", async (req, res) => {
     console.error(error);
     console.error("========================================");
 
+    if (error?.status === 429) {
+      return res.status(429).json({
+        success: false,
+        reply:
+          "Gemini free request limit temporarily exceed ho gayi hai. Please thodi der baad dobara try karo.",
+      });
+    }
+
     if (error?.status === 503) {
       return res.status(503).json({
         success: false,
@@ -199,11 +254,19 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    if (error?.status === 429) {
-      return res.status(429).json({
+    if (error?.status === 403) {
+      return res.status(403).json({
         success: false,
         reply:
-          "Gemini request limit temporarily exceed ho gayi hai. Please thodi der baad try karo.",
+          "Gemini API key permission issue hai. API key check karo.",
+      });
+    }
+
+    if (error?.status === 400 || error?.status === 404) {
+      return res.status(error.status).json({
+        success: false,
+        reply:
+          "Gemini request configuration issue hai. Model configuration check karo.",
       });
     }
 
@@ -240,10 +303,6 @@ app.post("/api/surveys", (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-/*
-  0.0.0.0 is important:
-  local mobile and deployed server both can reach backend.
-*/
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 
